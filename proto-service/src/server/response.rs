@@ -1,13 +1,11 @@
 use alloc::boxed::Box;
-use core::fmt;
 use core::pin::Pin;
 
 use bytes::Bytes;
 use futures_sink::Sink;
 use futures_util::SinkExt;
 
-use crate::server::RawResponseFrame;
-use crate::{Code, MetadataMap, Status};
+use crate::{Code, MetadataMap, RawResponseFrame, Status};
 
 /// A unary response: a single message with leading and trailing metadata.
 pub struct Response<T> {
@@ -32,16 +30,9 @@ impl<T> Response<T> {
 
 /// Error returned by a response [`Sink`] once its receiving end has been dropped
 /// or closed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("sending on a closed channel")]
 pub struct SendError;
-
-impl fmt::Display for SendError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("sending on a closed channel")
-    }
-}
-
-impl core::error::Error for SendError {}
 
 impl From<SendError> for Status {
     fn from(_: SendError) -> Self {
@@ -57,10 +48,34 @@ pub enum ResponseFrame<T> {
     Message(T),
 }
 
+/// Error returned by [`StreamingResponse::send_headers`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum SendHeadersError {
+    /// The receiving end has been dropped or closed ([`SendError`]).
+    #[error("sending on a closed channel")]
+    Closed,
+    /// A frame was already sent; headers must be the first frame.
+    #[error("headers must be the first frame")]
+    AlreadyOpened,
+}
+
+impl From<SendHeadersError> for Status {
+    fn from(err: SendHeadersError) -> Self {
+        match err {
+            SendHeadersError::Closed => Code::Cancelled.into(),
+            SendHeadersError::AlreadyOpened => {
+                Status::internal("response headers must be sent before any message")
+            }
+        }
+    }
+}
+
 /// The send side of a server-streaming / bidi response.
 pub struct StreamingResponse<T> {
     /// Sink for response frames: headers (at most once, first) then messages.
-    pub tx: Pin<Box<dyn Sink<ResponseFrame<T>, Error = SendError> + Send>>,
+    tx: Pin<Box<dyn Sink<ResponseFrame<T>, Error = SendError> + Send>>,
+    /// Whether any frame has been sent; headers are only legal before this.
+    opened: bool,
 }
 
 impl<T> StreamingResponse<T> {
@@ -81,17 +96,29 @@ impl<T> StreamingResponse<T> {
                     ResponseFrame::Message(message) => RawResponseFrame::Message(encode(message)),
                 }))
             })),
+            opened: false,
         }
     }
 
     /// Sends leading metadata; must precede any message.
-    pub async fn send_headers(&mut self, headers: MetadataMap) -> Result<(), SendError> {
-        self.tx.send(ResponseFrame::Headers(headers)).await
+    pub async fn send_headers(&mut self, headers: MetadataMap) -> Result<(), SendHeadersError> {
+        if self.opened {
+            return Err(SendHeadersError::AlreadyOpened);
+        }
+        self.tx
+            .send(ResponseFrame::Headers(headers))
+            .await
+            .map_err(|_| SendHeadersError::Closed)?;
+        // Mark opened after sending
+        self.opened = true;
+        Ok(())
     }
 
     /// Sends one response message.
     pub async fn send_message(&mut self, message: T) -> Result<(), SendError> {
-        self.tx.send(ResponseFrame::Message(message)).await
+        self.tx.send(ResponseFrame::Message(message)).await?;
+        self.opened = true;
+        Ok(())
     }
 }
 
@@ -105,15 +132,21 @@ mod tests {
     use futures::executor::block_on;
     use std::vec::Vec;
 
+    /// A transport adapter maps each native sink error into our concrete SendError,
+    /// then erases the sink into the owned, boxed form `new` expects.
+    fn streaming_response(
+        capacity: usize,
+    ) -> (StreamingResponse<i32>, mpsc::Receiver<RawResponseFrame>) {
+        let (tx, rx) = mpsc::channel::<RawResponseFrame>(capacity);
+        let resp = StreamingResponse::new(Box::pin(tx.sink_map_err(|_| SendError)), |m: i32| {
+            Bytes::copy_from_slice(&m.to_be_bytes())
+        });
+        (resp, rx)
+    }
+
     #[test]
     fn helpers_send_frames_to_owned_boxed_sink() {
-        let (tx, rx) = mpsc::channel::<ResponseFrame<i32>>(4);
-
-        // A transport adapter maps each native sink error into our concrete
-        // SendError, then erases the sink into the owned, boxed form.
-        let mut resp = StreamingResponse {
-            tx: Box::pin(tx.sink_map_err(|_| SendError)),
-        };
+        let (mut resp, rx) = streaming_response(4);
         block_on(async {
             resp.send_headers(MetadataMap::new()).await.unwrap();
             resp.send_message(1).await.unwrap();
@@ -121,11 +154,33 @@ mod tests {
         });
         drop(resp);
 
-        let frames: Vec<ResponseFrame<i32>> = block_on(rx.collect());
+        let frames: Vec<RawResponseFrame> = block_on(rx.collect());
         assert_eq!(frames.len(), 3);
-        assert!(matches!(frames[0], ResponseFrame::Headers(_)));
-        assert!(matches!(frames[1], ResponseFrame::Message(1)));
-        assert!(matches!(frames[2], ResponseFrame::Message(2)));
+        assert!(matches!(frames[0], RawResponseFrame::Headers(_)));
+        let expect = |frame: &RawResponseFrame, n: i32| matches!(frame, RawResponseFrame::Message(b) if b.as_ref() == n.to_be_bytes());
+        assert!(expect(&frames[1], 1));
+        assert!(expect(&frames[2], 2));
+    }
+
+    #[test]
+    fn headers_after_message_or_headers_rejected() {
+        let (mut resp, _rx) = streaming_response(4);
+        block_on(async {
+            resp.send_message(1).await.unwrap();
+            assert_eq!(
+                resp.send_headers(MetadataMap::new()).await,
+                Err(SendHeadersError::AlreadyOpened)
+            );
+        });
+
+        let (mut resp, _rx) = streaming_response(4);
+        block_on(async {
+            resp.send_headers(MetadataMap::new()).await.unwrap();
+            assert_eq!(
+                resp.send_headers(MetadataMap::new()).await,
+                Err(SendHeadersError::AlreadyOpened)
+            );
+        });
     }
 
     #[test]
