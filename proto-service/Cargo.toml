@@ -1,0 +1,22 @@
+[package]
+name = "proto-service"
+description = "Transport-agnostic protobuf RPC service abstractions built on futures Stream and Sink"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+std = []
+
+[dependencies]
+futures-core.workspace = true
+futures-sink.workspace = true
+futures-util.workspace = true
+num_enum.workspace = true
+thiserror.workspace = true
+bytes.workspace = true
+
+[dev-dependencies]
+# For exercising the Stream/Sink types in tests (combinators + a channel + executor).
+futures.workspace = true

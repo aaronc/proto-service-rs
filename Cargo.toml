@@ -1,0 +1,38 @@
+[workspace]
+resolver = "2"
+members = [
+  "proto-service",
+  "proto-service-build",
+  "proto-service-pipe",
+  "examples",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/aaronc/proto-service-rs"
+
+[workspace.dependencies]
+proto-service = { path = "proto-service", default-features = false }
+proto-service-build = { path = "proto-service-build" }
+
+futures-core = { version = "0.3", default-features = false, features = ["alloc"] }
+futures-sink = { version = "0.3", default-features = false, features = ["alloc"] }
+futures-channel= { version = "0.3", default-features = false, features = ["std", "sink"] }
+futures-util = { version = "0.3", default-features = false, features = ["alloc", "sink"] }
+num_enum = { version = "0.7", default-features = false }
+thiserror = { version = "2", default-features = false }
+prost = { version = "0.14", default-features = false, features = ["derive"] }
+prost-types = { version = "0.14", default-features = false }
+prost-build = "0.14"
+bytes = "1"
+tokio = { version = "1", default-features = false, features = ["rt"] }
+
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full"] }
+prettyplease = "0.2"
+manyhow = "0.11"
+
+futures = "0.3"

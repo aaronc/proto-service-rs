@@ -1,0 +1,24 @@
+name: Buf Lint
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bufbuild/buf-action@v1
+        with:
+          # Lint only. No token is passed, so there is no BSR login.
+          lint: true      # run lint on both push and pull_request
+          format: false   # do not run the format check
+          breaking: false # do not run breaking-change detection
+          push: false     # never push modules to the BSR
+          archive: false  # never archive BSR labels
+          pr_comment: false

@@ -1,0 +1,22 @@
+[package]
+name = "proto-service-pipe"
+description = "Bidirectional pipe transport for proto-service: multiplexes RPC calls over one packet stream/sink pair"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+tokio = ["dep:tokio"]
+
+[dependencies]
+proto-service.workspace = true
+prost.workspace = true
+prost-types.workspace = true
+bytes.workspace = true
+futures-channel.workspace = true
+futures-util = { workspace = true, features = ["std"] }
+tokio = { workspace = true, optional = true }
+
+[build-dependencies]
+prost-build.workspace = true

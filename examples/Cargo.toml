@@ -1,0 +1,13 @@
+[package]
+name = "proto-service-examples"
+version = "0.0.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+proto-service.workspace = true
+prost.workspace = true
+
+[build-dependencies]
+proto-service-build.workspace = true
+prost-build.workspace = true
