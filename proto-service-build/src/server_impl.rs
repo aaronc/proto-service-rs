@@ -36,13 +36,13 @@ impl CodeGenerator {
             descriptors.push(describe_arm(method));
         }
         Ok(quote! {
-            impl<T: #trait_ident> proto_service::Service for #server_ident<T> {
+            impl<T: #trait_ident> proto_service::server::Service for #server_ident<T> {
                 const SERVICE_NAME: &'static str = #service_name;
 
-                async fn handle(&self, call: proto_service::Call) -> proto_service::CallEnd {
+                async fn handle(&self, call: proto_service::server::Call) -> proto_service::server::CallEnd {
                     match call.method_name.as_str() {
                         #(#arms)*
-                        _ => proto_service::CallEnd::error(
+                        _ => proto_service::server::CallEnd::error(
                             proto_service::Status::unimplemented("method not found"),
                         ),
                     }
@@ -51,7 +51,7 @@ impl CodeGenerator {
                 fn describe_method(
                     &self,
                     method_name: &str,
-                ) -> Option<proto_service::MethodDescriptor> {
+                ) -> Option<proto_service::server::MethodDescriptor> {
                     match method_name {
                         #(#descriptors)*
                         _ => None,
@@ -122,12 +122,12 @@ fn decode_one_request(method: &Method) -> manyhow::Result<TokenStream2> {
         let message = match <#req as prost::Message>::decode(bytes) {
             Ok(message) => message,
             Err(_) => {
-                return proto_service::CallEnd::error(
+                return proto_service::server::CallEnd::error(
                     proto_service::Status::internal("failed to decode request"),
                 );
             }
         };
-        let request = proto_service::Request {
+        let request = proto_service::server::Request {
             headers: call.headers,
             extensions: call.extensions,
             message,
@@ -142,7 +142,7 @@ fn decode_stream_request(method: &Method) -> manyhow::Result<TokenStream2> {
             Ok(stream) => stream,
             Err(end) => return end,
         };
-        let request = proto_service::StreamingRequest::new(
+        let request = proto_service::server::StreamingRequest::new(
             call.headers,
             call.extensions,
             stream,
@@ -158,12 +158,12 @@ fn send_unary_response(method: &Method) -> TokenStream2 {
     let method_ident = format_ident!("{}", method.name);
     quote! {
         match self.inner.#method_ident(request).await {
-            Ok(response) => proto_service::CallEnd::single(
+            Ok(response) => proto_service::server::CallEnd::single(
                 response.headers,
                 proto_service::Bytes::from(prost::Message::encode_to_vec(&response.message)),
                 response.trailers,
             ),
-            Err(status) => proto_service::CallEnd::error(status),
+            Err(status) => proto_service::server::CallEnd::error(status),
         }
     }
 }
@@ -175,17 +175,17 @@ fn stream_response(method: &Method) -> manyhow::Result<TokenStream2> {
         let sink = match call.streaming_response {
             Some(sink) => sink,
             None => {
-                return proto_service::CallEnd::error(
+                return proto_service::server::CallEnd::error(
                     proto_service::Status::internal("missing response channel"),
                 );
             }
         };
-        let response = proto_service::StreamingResponse::new(sink, |message: #res| {
+        let response = proto_service::server::StreamingResponse::new(sink, |message: #res| {
             proto_service::Bytes::from(prost::Message::encode_to_vec(&message))
         });
         match self.inner.#method_ident(request, response).await {
-            Ok(trailers) => proto_service::CallEnd::streaming(trailers),
-            Err(status) => proto_service::CallEnd::error(status),
+            Ok(trailers) => proto_service::server::CallEnd::streaming(trailers),
+            Err(status) => proto_service::server::CallEnd::error(status),
         }
     })
 }
@@ -195,7 +195,7 @@ fn describe_arm(method: &Method) -> TokenStream2 {
     let client_streaming = method.client_streaming;
     let server_streaming = method.server_streaming;
     quote! {
-        #key => Some(proto_service::MethodDescriptor {
+        #key => Some(proto_service::server::MethodDescriptor {
             client_streaming: #client_streaming,
             server_streaming: #server_streaming,
         }),
@@ -240,9 +240,9 @@ mod tests {
     fn gen_service_impl_matches_expected() {
         let generated = CodeGenerator.gen_service_impl(&example_service()).unwrap();
         let expected = quote! {
-            impl<T: Greeter> proto_service::Service for GreeterServer<T> {
+            impl<T: Greeter> proto_service::server::Service for GreeterServer<T> {
                 const SERVICE_NAME: &'static str = "example.v1.Greeter";
-                async fn handle(&self, call: proto_service::Call) -> proto_service::CallEnd {
+                async fn handle(&self, call: proto_service::server::Call) -> proto_service::server::CallEnd {
                     match call.method_name.as_str() {
                         "Unary" => {
                             let bytes = match call.req_payload.into_single() {
@@ -252,23 +252,23 @@ mod tests {
                             let message = match <Ping as prost::Message>::decode(bytes) {
                                 Ok(message) => message,
                                 Err(_) => {
-                                    return proto_service::CallEnd::error(
+                                    return proto_service::server::CallEnd::error(
                                         proto_service::Status::internal("failed to decode request"),
                                     );
                                 }
                             };
-                            let request = proto_service::Request {
+                            let request = proto_service::server::Request {
                                 headers: call.headers,
                                 extensions: call.extensions,
                                 message,
                             };
                             match self.inner.unary(request).await {
-                                Ok(response) => proto_service::CallEnd::single(
+                                Ok(response) => proto_service::server::CallEnd::single(
                                     response.headers,
                                     proto_service::Bytes::from(prost::Message::encode_to_vec(&response.message)),
                                     response.trailers,
                                 ),
-                                Err(status) => proto_service::CallEnd::error(status),
+                                Err(status) => proto_service::server::CallEnd::error(status),
                             }
                         }
                         "ServerStream" => {
@@ -279,12 +279,12 @@ mod tests {
                             let message = match <Ping as prost::Message>::decode(bytes) {
                                 Ok(message) => message,
                                 Err(_) => {
-                                    return proto_service::CallEnd::error(
+                                    return proto_service::server::CallEnd::error(
                                         proto_service::Status::internal("failed to decode request"),
                                     );
                                 }
                             };
-                            let request = proto_service::Request {
+                            let request = proto_service::server::Request {
                                 headers: call.headers,
                                 extensions: call.extensions,
                                 message,
@@ -292,17 +292,17 @@ mod tests {
                             let sink = match call.streaming_response {
                                 Some(sink) => sink,
                                 None => {
-                                    return proto_service::CallEnd::error(
+                                    return proto_service::server::CallEnd::error(
                                         proto_service::Status::internal("missing response channel"),
                                     );
                                 }
                             };
-                            let response = proto_service::StreamingResponse::new(sink, |message: Pong| {
+                            let response = proto_service::server::StreamingResponse::new(sink, |message: Pong| {
                                 proto_service::Bytes::from(prost::Message::encode_to_vec(&message))
                             });
                             match self.inner.server_stream(request, response).await {
-                                Ok(trailers) => proto_service::CallEnd::streaming(trailers),
-                                Err(status) => proto_service::CallEnd::error(status),
+                                Ok(trailers) => proto_service::server::CallEnd::streaming(trailers),
+                                Err(status) => proto_service::server::CallEnd::error(status),
                             }
                         }
                         "ClientStream" => {
@@ -310,7 +310,7 @@ mod tests {
                                 Ok(stream) => stream,
                                 Err(end) => return end,
                             };
-                            let request = proto_service::StreamingRequest::new(
+                            let request = proto_service::server::StreamingRequest::new(
                                 call.headers,
                                 call.extensions,
                                 stream,
@@ -320,12 +320,12 @@ mod tests {
                                 },
                             );
                             match self.inner.client_stream(request).await {
-                                Ok(response) => proto_service::CallEnd::single(
+                                Ok(response) => proto_service::server::CallEnd::single(
                                     response.headers,
                                     proto_service::Bytes::from(prost::Message::encode_to_vec(&response.message)),
                                     response.trailers,
                                 ),
-                                Err(status) => proto_service::CallEnd::error(status),
+                                Err(status) => proto_service::server::CallEnd::error(status),
                             }
                         }
                         "Bidi" => {
@@ -333,7 +333,7 @@ mod tests {
                                 Ok(stream) => stream,
                                 Err(end) => return end,
                             };
-                            let request = proto_service::StreamingRequest::new(
+                            let request = proto_service::server::StreamingRequest::new(
                                 call.headers,
                                 call.extensions,
                                 stream,
@@ -345,20 +345,20 @@ mod tests {
                             let sink = match call.streaming_response {
                                 Some(sink) => sink,
                                 None => {
-                                    return proto_service::CallEnd::error(
+                                    return proto_service::server::CallEnd::error(
                                         proto_service::Status::internal("missing response channel"),
                                     );
                                 }
                             };
-                            let response = proto_service::StreamingResponse::new(sink, |message: Pong| {
+                            let response = proto_service::server::StreamingResponse::new(sink, |message: Pong| {
                                 proto_service::Bytes::from(prost::Message::encode_to_vec(&message))
                             });
                             match self.inner.bidi(request, response).await {
-                                Ok(trailers) => proto_service::CallEnd::streaming(trailers),
-                                Err(status) => proto_service::CallEnd::error(status),
+                                Ok(trailers) => proto_service::server::CallEnd::streaming(trailers),
+                                Err(status) => proto_service::server::CallEnd::error(status),
                             }
                         }
-                        _ => proto_service::CallEnd::error(
+                        _ => proto_service::server::CallEnd::error(
                             proto_service::Status::unimplemented("method not found"),
                         ),
                     }
@@ -366,21 +366,21 @@ mod tests {
                 fn describe_method(
                     &self,
                     method_name: &str,
-                ) -> Option<proto_service::MethodDescriptor> {
+                ) -> Option<proto_service::server::MethodDescriptor> {
                     match method_name {
-                        "Unary" => Some(proto_service::MethodDescriptor {
+                        "Unary" => Some(proto_service::server::MethodDescriptor {
                             client_streaming: false,
                             server_streaming: false,
                         }),
-                        "ServerStream" => Some(proto_service::MethodDescriptor {
+                        "ServerStream" => Some(proto_service::server::MethodDescriptor {
                             client_streaming: false,
                             server_streaming: true,
                         }),
-                        "ClientStream" => Some(proto_service::MethodDescriptor {
+                        "ClientStream" => Some(proto_service::server::MethodDescriptor {
                             client_streaming: true,
                             server_streaming: false,
                         }),
-                        "Bidi" => Some(proto_service::MethodDescriptor {
+                        "Bidi" => Some(proto_service::server::MethodDescriptor {
                             client_streaming: true,
                             server_streaming: true,
                         }),

@@ -8,7 +8,8 @@ use core::pin::Pin;
 use futures_core::Stream;
 use futures_sink::Sink;
 
-use crate::{Extensions, MetadataMap, SendError, Status};
+use crate::server::SendError;
+use crate::{Extensions, MetadataMap, Status};
 
 /// A service the transport dispatches requests to.
 ///
@@ -78,8 +79,7 @@ impl RequestPayload {
     }
 }
 
-/// A non-terminal response frame carrying encoded bytes; the terminal frame is the
-/// returned [`CallEnd`]. The typed, generic form is [`crate::ResponseFrame`].
+/// A non-terminal response frame; the terminal frame is the returned [`CallEnd`].
 pub enum RawResponseFrame {
     /// Leading response metadata. At most once, only as the first frame.
     Headers(MetadataMap),

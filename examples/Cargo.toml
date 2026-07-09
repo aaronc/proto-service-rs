@@ -5,9 +5,9 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-proto-service.workspace = true
-prost.workspace = true
+proto-service = { path = "../proto-service" }
+prost = "0.14"
 
 [build-dependencies]
-proto-service-build.workspace = true
-prost-build.workspace = true
+proto-service-build = { path = "../proto-service-build" }
+prost-build = "0.14"
