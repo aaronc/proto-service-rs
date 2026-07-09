@@ -5,7 +5,7 @@ use futures_core::Stream;
 use futures_sink::Sink;
 
 use crate::{
-    MetadataMap, Status,
+    MetadataMap,
     server::{CallEnd, SendError},
 };
 
@@ -37,46 +37,46 @@ pub enum RawResponseFrame {
     CallEnd(CallEnd),
 }
 
-pub struct RequestSink<T> {
-    tx: RawRequestSink,
-}
+// pub struct RequestSink<T> {
+//     tx: RawRequestSink,
+// }
 
-impl<T> RequestSink<T> {
-    pub async fn send(&self, message: T) -> Result<(), SendError> {
-        todo!()
-    }
+// impl<T> RequestSink<T> {
+//     pub async fn send(&self, message: T) -> Result<(), SendError> {
+//         todo!()
+//     }
 
-    pub async fn done(self) {
-        todo!()
-    }
-}
+//     pub async fn done(self) {
+//         todo!()
+//     }
+// }
 
-pub struct ResponseStream<T> {
-    rx: RawRequestStream,
-}
+// pub struct ResponseStream<T> {
+//     rx: RawRequestStream,
+// }
 
-impl<T> ResponseStream<T> {
-    pub async fn start(&self) -> Result<(MetadataMap, Message), Status> {
-        todo!()
-    }
-}
+// impl<T> ResponseStream<T> {
+//     pub async fn start(&self) -> Result<(MetadataMap, MessageResponseStream<T>), Status> {
+//         todo!()
+//     }
+// }
 
-pub struct MessageResponseStream<T> {}
+// pub struct MessageResponseStream<T> {}
 
-impl<T> ResponseStream<T> {
-    pub async fn next() -> Result<T, Status> {
-        todo!()
-    }
+// impl<T> ResponseStream<T> {
+//     pub async fn next() -> Result<T, Status> {
+//         todo!()
+//     }
 
-    fn trailers(&self) -> Option<&MetadataMap> {
-        todo!()
-    }
-}
+//     fn trailers(&self) -> Option<&MetadataMap> {
+//         todo!()
+//     }
+// }
 
-pub enum ResponseFrame<T> {
-    Message(T),
-    Done(Result<MetadataMap, Status>),
-}
+// pub enum ResponseFrame<T> {
+//     Message(T),
+//     Done(Result<MetadataMap, Status>),
+// }
 
 // pub enum ResponseFrame<T> {
 //     Headers(MetadataMap),

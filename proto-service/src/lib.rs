@@ -5,12 +5,14 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
+mod call;
 pub mod client;
-pub mod server;
 mod extensions;
 mod metadata;
+pub mod server;
 mod status;
 
+pub use call::*;
 pub use extensions::*;
 pub use metadata::*;
 pub use status::*;
