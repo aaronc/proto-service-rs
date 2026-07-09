@@ -5,7 +5,7 @@ use bytes::Bytes;
 use futures_sink::Sink;
 use futures_util::SinkExt;
 
-use crate::{Code, MetadataMap, RawResponseFrame, Status};
+use crate::{Code, MetadataMap, SendError, Status, server::RawResponseFrame};
 
 /// A unary response: a single message with leading and trailing metadata.
 pub struct Response<T> {
@@ -25,18 +25,6 @@ impl<T> Response<T> {
             message,
             trailers: MetadataMap::new(),
         }
-    }
-}
-
-/// Error returned by a response [`Sink`] once its receiving end has been dropped
-/// or closed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("sending on a closed channel")]
-pub struct SendError;
-
-impl From<SendError> for Status {
-    fn from(_: SendError) -> Self {
-        Code::Cancelled.into()
     }
 }
 

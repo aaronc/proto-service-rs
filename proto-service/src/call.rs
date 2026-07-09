@@ -1,6 +1,6 @@
 use bytes::Bytes;
 
-use crate::{MetadataMap, Status};
+use crate::{Code, MetadataMap, Status};
 
 /// How the call ended: what [`Service::handle`] resolves to, mirroring the wire's
 /// terminal Close frame.
@@ -46,5 +46,17 @@ impl CallEnd {
             single_response: None,
             single_headers: None,
         }
+    }
+}
+
+/// Error returned by a response [`Sink`] once its receiving end has been dropped
+/// or closed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("sending on a closed channel")]
+pub struct SendError;
+
+impl From<SendError> for Status {
+    fn from(_: SendError) -> Self {
+        Code::Cancelled.into()
     }
 }

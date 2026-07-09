@@ -3,6 +3,7 @@
 
 extern crate alloc;
 
+pub mod client;
 pub mod spawner;
 pub mod transport;
 

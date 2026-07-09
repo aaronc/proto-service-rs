@@ -4,10 +4,7 @@ use core::pin::Pin;
 use futures_core::Stream;
 use futures_sink::Sink;
 
-use crate::{
-    MetadataMap,
-    server::{CallEnd, SendError},
-};
+use crate::{CallEnd, MetadataMap, SendError};
 
 pub type RawRequestSink = Pin<Box<dyn Sink<RawRequestFrame, Error = SendError> + Send>>;
 

@@ -39,10 +39,10 @@ impl CodeGenerator {
             impl<T: #trait_ident> proto_service::server::Service for #server_ident<T> {
                 const SERVICE_NAME: &'static str = #service_name;
 
-                async fn handle(&self, call: proto_service::server::Call) -> proto_service::server::CallEnd {
+                async fn handle(&self, call: proto_service::server::Call) -> proto_service::CallEnd {
                     match call.method_name.as_str() {
                         #(#arms)*
-                        _ => proto_service::server::CallEnd::error(
+                        _ => proto_service::CallEnd::error(
                             proto_service::Status::unimplemented("method not found"),
                         ),
                     }
@@ -122,7 +122,7 @@ fn decode_one_request(method: &Method) -> manyhow::Result<TokenStream2> {
         let message = match <#req as prost::Message>::decode(bytes) {
             Ok(message) => message,
             Err(_) => {
-                return proto_service::server::CallEnd::error(
+                return proto_service::CallEnd::error(
                     proto_service::Status::internal("failed to decode request"),
                 );
             }
@@ -158,12 +158,12 @@ fn send_unary_response(method: &Method) -> TokenStream2 {
     let method_ident = format_ident!("{}", method.name);
     quote! {
         match self.inner.#method_ident(request).await {
-            Ok(response) => proto_service::server::CallEnd::single(
+            Ok(response) => proto_service::CallEnd::single(
                 response.headers,
                 proto_service::Bytes::from(prost::Message::encode_to_vec(&response.message)),
                 response.trailers,
             ),
-            Err(status) => proto_service::server::CallEnd::error(status),
+            Err(status) => proto_service::CallEnd::error(status),
         }
     }
 }
@@ -175,7 +175,7 @@ fn stream_response(method: &Method) -> manyhow::Result<TokenStream2> {
         let sink = match call.streaming_response {
             Some(sink) => sink,
             None => {
-                return proto_service::server::CallEnd::error(
+                return proto_service::CallEnd::error(
                     proto_service::Status::internal("missing response channel"),
                 );
             }
@@ -184,8 +184,8 @@ fn stream_response(method: &Method) -> manyhow::Result<TokenStream2> {
             proto_service::Bytes::from(prost::Message::encode_to_vec(&message))
         });
         match self.inner.#method_ident(request, response).await {
-            Ok(trailers) => proto_service::server::CallEnd::streaming(trailers),
-            Err(status) => proto_service::server::CallEnd::error(status),
+            Ok(trailers) => proto_service::CallEnd::streaming(trailers),
+            Err(status) => proto_service::CallEnd::error(status),
         }
     })
 }
@@ -242,7 +242,7 @@ mod tests {
         let expected = quote! {
             impl<T: Greeter> proto_service::server::Service for GreeterServer<T> {
                 const SERVICE_NAME: &'static str = "example.v1.Greeter";
-                async fn handle(&self, call: proto_service::server::Call) -> proto_service::server::CallEnd {
+                async fn handle(&self, call: proto_service::server::Call) -> proto_service::CallEnd {
                     match call.method_name.as_str() {
                         "Unary" => {
                             let bytes = match call.req_payload.into_single() {
@@ -252,7 +252,7 @@ mod tests {
                             let message = match <Ping as prost::Message>::decode(bytes) {
                                 Ok(message) => message,
                                 Err(_) => {
-                                    return proto_service::server::CallEnd::error(
+                                    return proto_service::CallEnd::error(
                                         proto_service::Status::internal("failed to decode request"),
                                     );
                                 }
@@ -263,12 +263,12 @@ mod tests {
                                 message,
                             };
                             match self.inner.unary(request).await {
-                                Ok(response) => proto_service::server::CallEnd::single(
+                                Ok(response) => proto_service::CallEnd::single(
                                     response.headers,
                                     proto_service::Bytes::from(prost::Message::encode_to_vec(&response.message)),
                                     response.trailers,
                                 ),
-                                Err(status) => proto_service::server::CallEnd::error(status),
+                                Err(status) => proto_service::CallEnd::error(status),
                             }
                         }
                         "ServerStream" => {
@@ -279,7 +279,7 @@ mod tests {
                             let message = match <Ping as prost::Message>::decode(bytes) {
                                 Ok(message) => message,
                                 Err(_) => {
-                                    return proto_service::server::CallEnd::error(
+                                    return proto_service::CallEnd::error(
                                         proto_service::Status::internal("failed to decode request"),
                                     );
                                 }
@@ -292,7 +292,7 @@ mod tests {
                             let sink = match call.streaming_response {
                                 Some(sink) => sink,
                                 None => {
-                                    return proto_service::server::CallEnd::error(
+                                    return proto_service::CallEnd::error(
                                         proto_service::Status::internal("missing response channel"),
                                     );
                                 }
@@ -301,8 +301,8 @@ mod tests {
                                 proto_service::Bytes::from(prost::Message::encode_to_vec(&message))
                             });
                             match self.inner.server_stream(request, response).await {
-                                Ok(trailers) => proto_service::server::CallEnd::streaming(trailers),
-                                Err(status) => proto_service::server::CallEnd::error(status),
+                                Ok(trailers) => proto_service::CallEnd::streaming(trailers),
+                                Err(status) => proto_service::CallEnd::error(status),
                             }
                         }
                         "ClientStream" => {
@@ -320,12 +320,12 @@ mod tests {
                                 },
                             );
                             match self.inner.client_stream(request).await {
-                                Ok(response) => proto_service::server::CallEnd::single(
+                                Ok(response) => proto_service::CallEnd::single(
                                     response.headers,
                                     proto_service::Bytes::from(prost::Message::encode_to_vec(&response.message)),
                                     response.trailers,
                                 ),
-                                Err(status) => proto_service::server::CallEnd::error(status),
+                                Err(status) => proto_service::CallEnd::error(status),
                             }
                         }
                         "Bidi" => {
@@ -345,7 +345,7 @@ mod tests {
                             let sink = match call.streaming_response {
                                 Some(sink) => sink,
                                 None => {
-                                    return proto_service::server::CallEnd::error(
+                                    return proto_service::CallEnd::error(
                                         proto_service::Status::internal("missing response channel"),
                                     );
                                 }
@@ -354,11 +354,11 @@ mod tests {
                                 proto_service::Bytes::from(prost::Message::encode_to_vec(&message))
                             });
                             match self.inner.bidi(request, response).await {
-                                Ok(trailers) => proto_service::server::CallEnd::streaming(trailers),
-                                Err(status) => proto_service::server::CallEnd::error(status),
+                                Ok(trailers) => proto_service::CallEnd::streaming(trailers),
+                                Err(status) => proto_service::CallEnd::error(status),
                             }
                         }
-                        _ => proto_service::server::CallEnd::error(
+                        _ => proto_service::CallEnd::error(
                             proto_service::Status::unimplemented("method not found"),
                         ),
                     }
