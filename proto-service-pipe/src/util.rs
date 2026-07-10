@@ -1,6 +1,10 @@
-use proto_service::MetadataMap;
+use proto_service::{Code, MetadataMap, Status};
 
 use crate::packet;
+
+pub(crate) fn from_packet_status(status: packet::Status) -> Status {
+    Status::new(Code::from(status.code), status.message)
+}
 
 pub(crate) fn to_packet_metadata(md: &MetadataMap) -> packet::Metadata {
     packet::Metadata {
