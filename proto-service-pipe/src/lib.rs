@@ -6,6 +6,7 @@ extern crate alloc;
 pub mod client;
 pub mod spawner;
 pub mod transport;
+mod util;
 
 /// Wire types generated from `proto/proto_pipe/v1/packet.proto`.
 pub mod packet {

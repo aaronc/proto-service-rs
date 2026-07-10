@@ -1,12 +1,20 @@
+use std::{
+    pin::Pin,
+    sync::{Mutex, PoisonError},
+};
+
 use alloc::{collections::BTreeMap, sync::Arc};
 
-use futures_channel::mpsc::unbounded;
-use futures_util::lock::Mutex;
-use proto_service::client::{ClientConnection, RawResponseFrame};
+use futures_util::{Sink, SinkExt, Stream};
+use proto_service::{
+    CallEnd, SendError,
+    client::{ClientConnection, RawResponseFrame},
+};
 
-use crate::packet::{RequestPacket, ResponsePacket};
-
-use futures_sink::SinkExt;
+use crate::{
+    packet::{RequestPacket, ResponsePacket, metadata, request_packet},
+    util::to_packet_metadata,
+};
 
 pub struct PipeClient {
     inner: Arc<Mutex<Inner>>,
@@ -15,13 +23,18 @@ pub struct PipeClient {
 struct Inner {
     last_req_id: u64,
     sessions: BTreeMap<u64, Session>,
-    tx: Pin<Box<dyn Sink<RequestPacket> + Send>>,
-    rx: Pin<Box<dyn Stream<Item = ResponsePacket>>>,
+    funnel: futures_channel::mpsc::Sender<RequestPacket>,
+    tx: Pin<Box<dyn Sink<RequestPacket, Error = SendError> + Send>>,
+    rx: Pin<Box<dyn Stream<Item = ResponsePacket> + Send>>,
 }
 
-enum Session {
-    Unary(Pin<Box<dyn Sink<Item = CallEnd>>>),
-    // rx: Pin<Box<dyn Stream<Item = RawResponseFrame>>>,
+struct Session {
+    res_tx: SessionTx,
+}
+
+enum SessionTx {
+    Single(futures_channel::oneshot::Sender<CallEnd>),
+    Streaming(futures_channel::mpsc::Sender<RawResponseFrame>),
 }
 
 impl ClientConnection for PipeClient {
@@ -31,17 +44,27 @@ impl ClientConnection for PipeClient {
         headers: proto_service::MetadataMap,
         request: bytes::Bytes,
     ) -> proto_service::client::CallEndFut {
-        let req_id = self.last_req_id + 1;
-        self.last_req_id += 1;
-        let (tx, rx) = unbounded();
-        let session = Session::Unary(tx);
-        Box::pin(async {
-            self.tx
-                .send(RequestPacket {
-                    req_id,
-                    frame: todo!(),
-                })
-                .await;
+        let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        let req_id = inner.last_req_id + 1;
+        inner.last_req_id += 1;
+        let (call_end_tx, call_end_rx) = futures_channel::oneshot::channel();
+        let session = Session {
+            res_tx: SessionTx::Single(call_end_tx),
+        };
+        inner.sessions.insert(req_id, session);
+        let mut req_tx = inner.funnel.clone();
+        let packet = RequestPacket {
+            req_id,
+            frame: Some(request_packet::Frame::Begin(request_packet::Begin {
+                method: method.into(),
+                headers: Some(to_packet_metadata(&headers)),
+                single_request: Some(request.into()),
+            })),
+        };
+        Box::pin(async move {
+            // TODO handle send error
+            let _ = req_tx.send(packet).await;
+            call_end_rx.await.unwrap()
         })
     }
 

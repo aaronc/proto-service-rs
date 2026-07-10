@@ -9,13 +9,13 @@ use bytes::Bytes;
 use futures_channel::mpsc::{self, Receiver, Sender, UnboundedSender};
 use futures_util::future::{AbortHandle, Abortable};
 use futures_util::{FutureExt, SinkExt, StreamExt, stream};
-use proto_service::client::RawResponseFrame;
-use proto_service::server::ServiceRouter;
+use proto_service::server::{Call, RawResponseFrame, RequestPayload, ServiceRouter};
 use proto_service::{CallEnd, MetadataMap, SendError, Sink, Status, Stream};
 
 use crate::packet::{self, RequestPacket};
 use crate::packet::{ResponsePacket, request_packet::Frame};
 use crate::spawner::Spawner;
+use crate::util::{from_packet_metadata, to_packet_metadata};
 
 /// Dispatches RPC calls over bidirectional pipes. Built once, then serves many
 /// connections concurrently against a shared [`ServiceRouter`].
@@ -357,26 +357,6 @@ fn close_packet(req_id: u64, end: CallEnd) -> ResponsePacket {
         req_id,
         frame: Some(packet::response_packet::Frame::Close(close)),
     }
-}
-
-fn to_packet_metadata(md: &MetadataMap) -> packet::Metadata {
-    packet::Metadata {
-        entries: md
-            .iter_flat()
-            .map(|(key, value)| packet::metadata::Entry {
-                key: key.into(),
-                value: value.into(),
-            })
-            .collect(),
-    }
-}
-
-fn from_packet_metadata(md: packet::Metadata) -> MetadataMap {
-    let mut out = MetadataMap::new();
-    for entry in md.entries {
-        out.append(entry.key, entry.value);
-    }
-    out
 }
 
 fn to_packet_status(status: Status) -> packet::Status {
