@@ -5,6 +5,7 @@ use core::pin::Pin;
 use core::task::{Context, Poll, ready};
 use futures_core::Stream;
 use futures_sink::Sink;
+use futures_util::SinkExt;
 
 use crate::{CallEnd, MetadataMap, SendError};
 
@@ -215,20 +216,62 @@ impl Drop for CallEndFut {
     }
 }
 
-//// WIP design for types that codegen will actually use
-// pub struct RequestSink<T> {
-//     tx: RawRequestSink,
-// }
+/// The send half of a streaming-request call, as generated code hands it to callers.
+///
+/// Implements [`Sink<T>`], so `SinkExt::send`, `send_all` and `forward` all work.
+/// Closing it half-closes the call; dropping it without closing cancels the call.
+pub struct RequestSink<T> {
+    tx: RawRequestSink,
+    encode: Box<dyn FnMut(T) -> Bytes + Send>,
+    done: bool,
+}
 
-// impl<T> RequestSink<T> {
-//     pub async fn send(&self, message: T) -> Result<(), SendError> {
-//         todo!()
-//     }
+impl<T: 'static> RequestSink<T> {
+    pub fn new(tx: RawRequestSink, encode: impl FnMut(T) -> Bytes + Send + 'static) -> Self {
+        Self {
+            tx,
+            encode: Box::new(encode),
+            done: false,
+        }
+    }
 
-//     pub async fn done(self) {
-//         todo!()
-//     }
-// }
+    /// Half-closes the call, consuming the sink so nothing can be sent afterwards.
+    ///
+    /// Equivalent to `SinkExt::close`, which is also what makes the subsequent drop a
+    /// clean finish rather than a cancellation. An error here only means the call had
+    /// already ended; its status arrives on the response half.
+    pub async fn done(mut self) -> Result<(), SendError> {
+        SinkExt::close(&mut self).await
+    }
+}
+
+impl<T: 'static> Sink<T> for RequestSink<T> {
+    type Error = SendError;
+
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), SendError>> {
+        Pin::new(&mut self.get_mut().tx).poll_ready(cx)
+    }
+
+    fn start_send(self: Pin<&mut Self>, message: T) -> Result<(), SendError> {
+        let this = self.get_mut();
+        let body = (this.encode)(message);
+        Pin::new(&mut this.tx).start_send(RawRequestFrame::Message(body))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), SendError>> {
+        Pin::new(&mut self.get_mut().tx).poll_flush(cx)
+    }
+
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), SendError>> {
+        let this = self.get_mut();
+        if !this.done {
+            ready!(Pin::new(&mut this.tx).poll_ready(cx))?;
+            Pin::new(&mut this.tx).start_send(RawRequestFrame::Done)?;
+            this.done = true;
+        }
+        Pin::new(&mut this.tx).poll_close(cx)
+    }
+}
 
 // pub struct ResponseStream<T> {
 //     rx: RawRequestStream,
