@@ -1,6 +1,6 @@
 use std::{
     pin::Pin,
-    sync::{Mutex, PoisonError},
+    sync::{Mutex, PoisonError, atomic::AtomicU64},
 };
 
 use alloc::{collections::BTreeMap, sync::Arc};
@@ -17,15 +17,13 @@ use crate::{
 };
 
 pub struct PipeClient {
-    inner: Arc<Mutex<Inner>>,
+    inner: Arc<Inner>,
 }
 
 struct Inner {
-    last_req_id: u64,
-    sessions: BTreeMap<u64, Session>,
-    funnel: futures_channel::mpsc::Sender<RequestPacket>,
-    tx: Pin<Box<dyn Sink<RequestPacket, Error = SendError> + Send>>,
-    rx: Pin<Box<dyn Stream<Item = ResponsePacket> + Send>>,
+    next_req_id: AtomicU64,
+    sessions: Mutex<BTreeMap<u64, Session>>,
+    outbound: futures_channel::mpsc::UnboundedSender<RequestPacket>,
 }
 
 struct Session {
@@ -44,15 +42,23 @@ impl ClientConnection for PipeClient {
         headers: proto_service::MetadataMap,
         request: bytes::Bytes,
     ) -> proto_service::client::CallEndFut {
-        let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-        let req_id = inner.last_req_id + 1;
-        inner.last_req_id += 1;
+        let req_id = self
+            .inner
+            .next_req_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed); // TODO what ordering?
         let (call_end_tx, call_end_rx) = futures_channel::oneshot::channel();
         let session = Session {
             res_tx: SessionTx::Single(call_end_tx),
         };
-        inner.sessions.insert(req_id, session);
-        let mut req_tx = inner.funnel.clone();
+        {
+            let mut sessions = self
+                .inner
+                .sessions
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            sessions.insert(req_id, session);
+        }
+        let mut req_tx = self.inner.outbound.clone();
         let packet = RequestPacket {
             req_id,
             frame: Some(request_packet::Frame::Begin(request_packet::Begin {
