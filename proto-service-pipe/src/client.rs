@@ -1,3 +1,6 @@
+//! Client half of the pipe transport: multiplexes calls over one
+//! `Stream<ResponsePacket>` / `Sink<RequestPacket>` pair, correlating them by `req_id`.
+
 use std::sync::{
     Mutex, PoisonError,
     atomic::{AtomicU64, Ordering},
@@ -21,10 +24,22 @@ use crate::{
     util::{from_packet_metadata, from_packet_status, to_packet_metadata},
 };
 
+/// Opens calls on a [`PipeConnection`].
+///
+/// Cheap to clone; every clone shares one connection, and calls are multiplexed on it
+/// by `req_id`. Hence `&self`: any number of concurrent calls may be in flight, and a
+/// call outlives the client that opened it.
+#[derive(Clone)]
 pub struct PipeClient {
     inner: Arc<Inner>,
 }
 
+/// Owns one bidirectional pipe and drives it.
+///
+/// Nothing is read or written until [`run`](Self::run) is polled, so mint clients with
+/// [`new_client`](Self::new_client) first and then hand the connection to an executor
+/// -- or `select!` it into an existing loop. Either way the client side needs no
+/// spawner of its own.
 pub struct PipeConnection<In, Out> {
     inner: Arc<Inner>,
     inbound: In,
@@ -38,32 +53,40 @@ struct Inner {
     outbound: mpsc::UnboundedSender<RequestPacket>,
 }
 
+/// The delivery end of a live call, held by the run loop.
+///
+/// `Streaming` is unbounded because the run loop routes frames for every call on the
+/// connection: blocking on one call's channel would stall all the others.
 enum Session {
     Single(oneshot::Sender<CallEnd>),
     Streaming(mpsc::UnboundedSender<RawResponseFrame>),
 }
 
-impl PipeClient {
-    pub fn new<In, Out>(inbound: In, outbound: Out) -> (Self, PipeConnection<In, Out>)
-    where
-        In: Stream<Item = ResponsePacket> + Unpin,
-        Out: Sink<RequestPacket> + Unpin,
-    {
+impl<In, Out> PipeConnection<In, Out> {
+    /// Wraps one pipe. Performs no I/O; see [`run`](Self::run).
+    pub fn new(inbound: In, outbound: Out) -> Self {
         let (outbound_tx, outbound_rx) = mpsc::unbounded();
-        let inner = Arc::new(Inner {
-            next_req_id: AtomicU64::new(1),
-            sessions: Mutex::new(BTreeMap::new()),
-            outbound: outbound_tx,
-        });
-        let connection = PipeConnection {
-            inner: inner.clone(),
+        Self {
+            inner: Arc::new(Inner {
+                next_req_id: AtomicU64::new(1),
+                sessions: Mutex::new(BTreeMap::new()),
+                outbound: outbound_tx,
+            }),
             inbound,
             outbound,
             outbound_rx,
-        };
-        (Self { inner }, connection)
+        }
     }
 
+    /// A client for opening calls on this connection.
+    pub fn new_client(&self) -> PipeClient {
+        PipeClient {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl PipeClient {
     fn cancel_handle_for(&self, req_id: u64) -> Arc<dyn Cancel> {
         Arc::new(PipeCancelHandle {
             req_id,
@@ -211,6 +234,12 @@ struct PipeCancelHandle {
 }
 
 impl Cancel for PipeCancelHandle {
+    /// Removing the session is what makes this idempotent, as `Cancel` requires: the run
+    /// loop removes it when `Close` arrives, so a later drop finds nothing and does
+    /// nothing. Both halves of a bidi call hold one of these and cancel independently.
+    ///
+    /// Delivering `CANCELLED` gives whichever half the caller still holds a terminal
+    /// frame, rather than a stream that simply goes silent.
     fn cancel(&self) {
         let Some(session) = self.inner.remove_session(self.req_id) else {
             return;
@@ -234,6 +263,13 @@ where
     In: Stream<Item = ResponsePacket> + Unpin,
     Out: Sink<RequestPacket> + Unpin,
 {
+    /// Drives the connection: routes inbound packets to their calls, writes queued
+    /// outbound packets to the pipe.
+    ///
+    /// Returns once the inbound half ends or the outbound half errors, and then fails
+    /// every still-live call with `UNAVAILABLE`. That is the only place a call is
+    /// resolved by connection teardown, which is why no call handle ever has to cope
+    /// with its delivery channel vanishing.
     pub async fn run(self) {
         let Self {
             inner,
