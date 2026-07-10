@@ -1,16 +1,19 @@
 //! Client half of the pipe transport: multiplexes calls over one
 //! `Stream<ResponsePacket>` / `Sink<RequestPacket>` pair, correlating them by `req_id`.
 
-use std::sync::{
-    Mutex, PoisonError,
-    atomic::{AtomicU64, Ordering},
+use std::{
+    pin::pin,
+    sync::{
+        Mutex, PoisonError,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use alloc::{collections::BTreeMap, sync::Arc};
 
 use bytes::Bytes;
 use futures_channel::{mpsc, oneshot};
-use futures_util::{Sink, SinkExt, Stream, StreamExt, future, stream};
+use futures_util::{Sink, SinkExt, Stream, StreamExt, future};
 use proto_service::{
     CallEnd, MetadataMap, SendError, Status,
     client::{
@@ -252,12 +255,6 @@ impl Cancel for PipeCancelHandle {
     }
 }
 
-enum Event {
-    Response(ResponsePacket),
-    Request(RequestPacket),
-    InboundClosed,
-}
-
 impl<In, Out> PipeConnection<In, Out>
 where
     In: Stream<Item = ResponsePacket> + Unpin,
@@ -266,42 +263,43 @@ where
     /// Drives the connection: routes inbound packets to their calls, writes queued
     /// outbound packets to the pipe.
     ///
-    /// Returns once the inbound half ends or the outbound half errors, and then fails
-    /// every still-live call with `UNAVAILABLE`. That is the only place a call is
-    /// resolved by connection teardown, which is why no call handle ever has to cope
-    /// with its delivery channel vanishing.
+    /// The two directions are driven concurrently rather than in turn: a pipe with
+    /// finite buffers deadlocks if we stop reading while blocked on a write.
+    ///
+    /// Returns once the inbound half ends, the outbound half errors, or the last client
+    /// and in-flight call are dropped -- the run loop holds only a [`Weak`] reference,
+    /// so the outbound queue's senders outlive it exactly as long as somebody can still
+    /// open or cancel a call. Every call still live is then failed with `UNAVAILABLE`.
+    /// That is the only place a call is resolved by connection teardown, which is why no
+    /// call handle ever has to cope with its delivery channel vanishing.
     pub async fn run(self) {
         let Self {
             inner,
-            inbound,
-            mut outbound,
+            mut inbound,
+            outbound,
             outbound_rx,
         } = self;
+        // Must drop the strong ref, not just shadow it: the outbound queue's senders live
+        // in `Inner`, so holding one here would keep `outbound_rx` open forever.
+        let weak = Arc::downgrade(&inner);
+        drop(inner);
+        let inner = weak;
 
-        // Select on both inbound and outbound events
-        let mut events = stream::select(
-            inbound
-                .map(Event::Response)
-                .chain(stream::once(future::ready(Event::InboundClosed))), // append a closed event so we know when the inbound channel closes
-            outbound_rx.map(Event::Request),
-        );
-
-        while let Some(event) = events.next().await {
-            match event {
-                Event::Response(packet) => route_response(&inner, packet),
-                Event::Request(packet) => {
-                    if outbound.send(packet).await.is_err() {
-                        break;
-                    }
-                }
-                Event::InboundClosed => break,
+        let read = async {
+            while let Some(packet) = inbound.next().await {
+                let Some(inner) = inner.upgrade() else { break };
+                route_response(&inner, packet);
             }
-        }
+        };
+        let write = outbound_rx.map(Ok).forward(outbound);
 
-        // Cleanup when we're done
-        let sessions = core::mem::take(&mut *inner.lock_sessions());
-        for (_, session) in sessions {
-            session.deliver_call_end(CallEnd::error(Status::unavailable("connection closed")));
+        let _ = future::select(pin!(read), pin!(write)).await;
+
+        if let Some(inner) = inner.upgrade() {
+            let sessions = core::mem::take(&mut *inner.lock_sessions());
+            for (_, session) in sessions {
+                session.deliver_call_end(CallEnd::error(Status::unavailable("connection closed")));
+            }
         }
     }
 }
