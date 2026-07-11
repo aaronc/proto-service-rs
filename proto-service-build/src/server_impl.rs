@@ -1,5 +1,5 @@
 use crate::generator::CodeGenerator;
-use crate::util::rust_type;
+use crate::util::{rust_type, service_name};
 use proc_macro2::TokenStream as TokenStream2;
 use prost_build::{Method, Service};
 use quote::{format_ident, quote};
@@ -199,14 +199,6 @@ fn describe_arm(method: &Method) -> TokenStream2 {
             client_streaming: #client_streaming,
             server_streaming: #server_streaming,
         }),
-    }
-}
-
-fn service_name(service: &Service) -> String {
-    if service.package.is_empty() {
-        service.proto_name.clone()
-    } else {
-        format!("{}.{}", service.package, service.proto_name)
     }
 }
 

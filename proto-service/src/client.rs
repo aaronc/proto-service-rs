@@ -72,6 +72,39 @@ pub trait ClientConnection: Send + Sync {
     fn bidi(&self, method: &str, headers: MetadataMap) -> (RawRequestSink, RawResponseStream);
 }
 
+/// A type-erased [`ClientConnection`] handle held by generated clients.
+///
+/// Cloning is cheap: clones share the underlying connection.
+#[derive(Clone)]
+pub struct Connection(Arc<dyn ClientConnection>);
+
+impl Connection {
+    pub fn new(conn: impl ClientConnection + 'static) -> Self {
+        Self(Arc::new(conn))
+    }
+
+    pub fn unary(&self, method: &str, headers: MetadataMap, request: Bytes) -> CallEndFut {
+        self.0.unary(method, headers, request)
+    }
+
+    pub fn server_stream(
+        &self,
+        method: &str,
+        headers: MetadataMap,
+        request: Bytes,
+    ) -> RawResponseStream {
+        self.0.server_stream(method, headers, request)
+    }
+
+    pub fn client_stream(&self, method: &str, headers: MetadataMap) -> (RawRequestSink, CallEndFut) {
+        self.0.client_stream(method, headers)
+    }
+
+    pub fn bidi(&self, method: &str, headers: MetadataMap) -> (RawRequestSink, RawResponseStream) {
+        self.0.bidi(method, headers)
+    }
+}
+
 /// The send half of a streaming-request call.
 ///
 /// Sending [`RawRequestFrame::Done`] half-closes the send direction. Dropping this
