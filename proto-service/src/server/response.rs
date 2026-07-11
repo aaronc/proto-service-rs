@@ -7,27 +7,6 @@ use futures_util::SinkExt;
 
 use crate::{Code, MetadataMap, SendError, Status, server::RawResponseFrame};
 
-/// A unary response: a single message with leading and trailing metadata.
-pub struct Response<T> {
-    /// Metadata sent before the message.
-    pub headers: MetadataMap,
-    /// The response message.
-    pub message: T,
-    /// Metadata sent after the message.
-    pub trailers: MetadataMap,
-}
-
-impl<T> Response<T> {
-    /// Wraps `message` with empty leading and trailing metadata.
-    pub fn new(message: T) -> Self {
-        Self {
-            headers: MetadataMap::new(),
-            message,
-            trailers: MetadataMap::new(),
-        }
-    }
-}
-
 /// A frame on a [`StreamingResponse`]: leading metadata, then messages.
 pub enum ResponseFrame<T> {
     /// Leading metadata; at most once, before any message.

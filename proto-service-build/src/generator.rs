@@ -11,10 +11,12 @@ impl CodeGenerator {
         let server_trait = self.gen_server_trait(service)?;
         let server_struct = self.gen_server_struct(service)?;
         let service_impl = self.gen_service_impl(service)?;
+        let client_struct = self.gen_client_struct(service)?;
         Ok(quote! {
             #server_trait
             #server_struct
             #service_impl
+            #client_struct
         })
     }
 }

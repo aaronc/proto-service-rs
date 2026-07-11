@@ -1,7 +1,7 @@
 include!(concat!(env!("OUT_DIR"), "/example.v1.rs"));
 
-use proto_service::server::{Request, Response, StreamingRequest, StreamingResponse};
-use proto_service::{MetadataMap, Result, StreamExt};
+use proto_service::server::{Request, StreamingRequest, StreamingResponse};
+use proto_service::{MetadataMap, Response, Result, StreamExt};
 
 pub struct MyGreeter;
 

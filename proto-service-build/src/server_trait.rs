@@ -39,7 +39,7 @@ impl CodeGenerator {
             #doc
             fn #name(&self, request: proto_service::server::Request<#req>)
                 -> impl core::future::Future<
-                    Output = proto_service::Result<proto_service::server::Response<#res>>,
+                    Output = proto_service::Result<proto_service::Response<#res>>,
                 > + Send;
         })
     }
@@ -76,7 +76,7 @@ impl CodeGenerator {
             #doc
             fn #name(&self, request: proto_service::server::StreamingRequest<#req>)
                 -> impl core::future::Future<
-                    Output = proto_service::Result<proto_service::server::Response<#res>>,
+                    Output = proto_service::Result<proto_service::Response<#res>>,
                 > + Send;
         })
     }
@@ -115,7 +115,7 @@ mod tests {
                 #[doc = " Says hello."]
                 fn unary(&self, request: proto_service::server::Request<Ping>)
                     -> impl core::future::Future<
-                        Output = proto_service::Result<proto_service::server::Response<Pong>>,
+                        Output = proto_service::Result<proto_service::Response<Pong>>,
                     > + Send;
                 fn server_stream(
                     &self,
@@ -126,7 +126,7 @@ mod tests {
                 > + Send;
                 fn client_stream(&self, request: proto_service::server::StreamingRequest<Ping>)
                     -> impl core::future::Future<
-                        Output = proto_service::Result<proto_service::server::Response<Pong>>,
+                        Output = proto_service::Result<proto_service::Response<Pong>>,
                     > + Send;
                 fn bidi(
                     &self,

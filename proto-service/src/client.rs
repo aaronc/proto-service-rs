@@ -7,7 +7,7 @@ use futures_core::Stream;
 use futures_sink::Sink;
 use futures_util::{SinkExt, StreamExt, stream};
 
-use crate::{CallEnd, Code, MetadataMap, SendError, Status};
+use crate::{CallEnd, Code, MetadataMap, Response, SendError, Status};
 
 /// Aborts a call, telling the peer to stop and failing the caller's local state.
 ///
@@ -301,7 +301,7 @@ impl<T: 'static, U: 'static> ClientStream<T, U> {
     ///
     /// A send error while closing only means the call had already ended; its status
     /// arrives with the response.
-    pub async fn finish(self) -> Result<U, Status> {
+    pub async fn finish(self) -> Result<Response<U>, Status> {
         let Self {
             sink,
             response,
@@ -312,10 +312,14 @@ impl<T: 'static, U: 'static> ClientStream<T, U> {
         if end.status.code() != Code::Ok {
             return Err(end.status);
         }
-        match end.single_response {
-            Some(body) => decode(body),
-            None => Err(Status::internal("unable to decode response message")),
-        }
+        let bytes = end
+            .single_response
+            .ok_or_else(|| Status::internal("unable to decode response message"))?;
+        Ok(Response {
+            headers: end.single_headers.unwrap_or_default(),
+            message: decode(bytes)?,
+            trailers: end.trailers,
+        })
     }
 }
 

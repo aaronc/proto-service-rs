@@ -9,12 +9,14 @@ mod call;
 pub mod client;
 mod extensions;
 mod metadata;
+mod response;
 pub mod server;
 mod status;
 
 pub use call::*;
 pub use extensions::*;
 pub use metadata::*;
+pub use response::*;
 pub use status::*;
 
 // Re-exported so the channel types can be named/constructed, and their
