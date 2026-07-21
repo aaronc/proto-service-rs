@@ -21,11 +21,13 @@ impl CodeGenerator {
                 conn: proto_service::client::Connection,
             }
 
-            impl #client_ident {
-                pub fn new(conn: impl proto_service::client::ClientConnection + 'static) -> Self {
+            impl<T: proto_service::client::ClientConnection + 'static> From<T> for #client_ident {
+                fn from(conn: T) -> Self {
                     Self { conn: proto_service::client::Connection::new(conn) }
                 }
+            }
 
+            impl #client_ident {
                 #(#methods)*
             }
         })
@@ -54,6 +56,7 @@ impl CodeGenerator {
         let req = rust_type(&method.input_type)?;
         let res = rust_type(&method.output_type)?;
         let path = full_method(service_name, method);
+        let decode = decode_closure(method)?;
         Ok(quote! {
             #doc
             pub async fn #name(
@@ -62,19 +65,7 @@ impl CodeGenerator {
                 headers: proto_service::MetadataMap,
             ) -> proto_service::Result<proto_service::Response<#res>> {
                 let request = proto_service::Bytes::from(prost::Message::encode_to_vec(&request));
-                let end = self.conn.unary(#path, headers, request).await;
-                if end.status.code() != proto_service::Code::Ok {
-                    return Err(end.status);
-                }
-                let bytes = end.single_response.ok_or_else(|| {
-                    proto_service::Status::internal("response ended without a message")
-                })?;
-                Ok(proto_service::Response {
-                    headers: end.single_headers.unwrap_or_default(),
-                    message: <#res as prost::Message>::decode(bytes)
-                        .map_err(|_| proto_service::Status::internal("failed to decode response"))?,
-                    trailers: end.trailers,
-                })
+                self.conn.unary(#path, headers, request).await.into_response(#decode)
             }
         })
     }
@@ -200,10 +191,12 @@ mod tests {
             pub struct GreeterClient {
                 conn: proto_service::client::Connection,
             }
-            impl GreeterClient {
-                pub fn new(conn: impl proto_service::client::ClientConnection + 'static) -> Self {
+            impl<T: proto_service::client::ClientConnection + 'static> From<T> for GreeterClient {
+                fn from(conn: T) -> Self {
                     Self { conn: proto_service::client::Connection::new(conn) }
                 }
+            }
+            impl GreeterClient {
                 #[doc = " Says hello."]
                 pub async fn unary(
                     &self,
@@ -211,18 +204,9 @@ mod tests {
                     headers: proto_service::MetadataMap,
                 ) -> proto_service::Result<proto_service::Response<Pong>> {
                     let request = proto_service::Bytes::from(prost::Message::encode_to_vec(&request));
-                    let end = self.conn.unary("/example.v1.Greeter/Unary", headers, request).await;
-                    if end.status.code() != proto_service::Code::Ok {
-                        return Err(end.status);
-                    }
-                    let bytes = end.single_response.ok_or_else(|| {
-                        proto_service::Status::internal("response ended without a message")
-                    })?;
-                    Ok(proto_service::Response {
-                        headers: end.single_headers.unwrap_or_default(),
-                        message: <Pong as prost::Message>::decode(bytes)
-                            .map_err(|_| proto_service::Status::internal("failed to decode response"))?,
-                        trailers: end.trailers,
+                    self.conn.unary("/example.v1.Greeter/Unary", headers, request).await.into_response(|bytes| {
+                        <Pong as prost::Message>::decode(bytes)
+                            .map_err(|_| proto_service::Status::internal("failed to decode response"))
                     })
                 }
                 pub async fn server_stream(

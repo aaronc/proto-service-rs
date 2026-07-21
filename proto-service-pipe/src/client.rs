@@ -207,7 +207,7 @@ impl Inner {
                 single_request: single_request.map(|r| r.into()),
             })),
         });
-        // Remove the session and deliver an error an error if there was a send error
+        // Remove the session and deliver an error if the send failed
         if sent.is_err()
             && let Some(session) = self.remove_session(req_id)
         {

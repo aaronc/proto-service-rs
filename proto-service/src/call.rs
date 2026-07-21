@@ -1,6 +1,6 @@
 use bytes::Bytes;
 
-use crate::{Code, MetadataMap, Status};
+use crate::{Code, MetadataMap, Response, Status};
 
 /// How the call ended: what [`Service::handle`] resolves to, mirroring the wire's
 /// terminal Close frame.
@@ -46,6 +46,25 @@ impl CallEnd {
             single_response: None,
             single_headers: None,
         }
+    }
+
+    /// Converts a single-response end into a typed [`Response`]: a non-OK status is the
+    /// error, then a missing message is one; absent leading metadata becomes empty.
+    pub fn into_response<T>(
+        self,
+        decode: impl FnOnce(Bytes) -> Result<T, Status>,
+    ) -> Result<Response<T>, Status> {
+        if self.status.code() != Code::Ok {
+            return Err(self.status);
+        }
+        let bytes = self
+            .single_response
+            .ok_or_else(|| Status::internal("response ended without a message"))?;
+        Ok(Response {
+            headers: self.single_headers.unwrap_or_default(),
+            message: decode(bytes)?,
+            trailers: self.trailers,
+        })
     }
 }
 

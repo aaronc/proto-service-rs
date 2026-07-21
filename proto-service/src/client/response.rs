@@ -31,9 +31,10 @@ impl<T: 'static> ResponseStream<T> {
     /// Reads the response head, then yields the decoded messages.
     ///
     /// Awaits whichever of `Headers`, the first message, or the terminal frame arrives
-    /// first. Returns `Err` if the call ended non-OK before any message -- the common
+    /// first. Returns `Err` if the call's very first frame is a non-OK end -- the common
     /// early rejection, so `?` catches `UNIMPLEMENTED` and friends before the caller
-    /// loops. Any frame consumed to find the head is put back at the front of the stream.
+    /// loops. (A non-OK end after a `Headers` frame surfaces on the stream instead.)
+    /// Any frame consumed to find the head is put back at the front of the stream.
     ///
     /// An absent `Headers` frame yields empty metadata; on the wire the two are the same.
     pub async fn read(

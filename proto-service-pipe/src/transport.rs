@@ -10,7 +10,7 @@ use futures_channel::mpsc::{self, Receiver, Sender, UnboundedSender};
 use futures_util::future::{AbortHandle, Abortable};
 use futures_util::{FutureExt, SinkExt, StreamExt, stream};
 use proto_service::server::{Call, RawResponseFrame, RequestPayload, ServiceRouter};
-use proto_service::{CallEnd, MetadataMap, SendError, Sink, Status, Stream};
+use proto_service::{CallEnd, SendError, Sink, Status, Stream};
 
 use crate::packet::{self, RequestPacket};
 use crate::packet::{ResponsePacket, request_packet::Frame};

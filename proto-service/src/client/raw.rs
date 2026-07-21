@@ -50,14 +50,18 @@ pub enum RawResponseFrame {
 
 /// The send half of a streaming-request call.
 ///
-/// Sending [`RawRequestFrame::Done`] half-closes the send direction. Dropping this
-/// without having sent it cancels the call -- there is no other way to distinguish
-/// a client that finished from one that died.
+/// Sending and flushing [`RawRequestFrame::Done`] half-closes the send direction.
+/// Dropping this before a `Done` has been flushed cancels the call -- there is no
+/// other way to distinguish a client that finished from one that died. A `Done`
+/// accepted by `start_send` but never flushed does not count: the sink underneath
+/// may still be buffering it, so only a completed flush or close proves it was
+/// handed to the transport.
 ///
 /// `poll_close` only closes the sink; it does not half-close the call. Send `Done`.
 pub struct RawRequestSink {
     sink: Pin<Box<dyn Sink<RawRequestFrame, Error = SendError> + Send>>,
     cancel: Arc<dyn Cancel>,
+    queued_done: bool,
     done: bool,
 }
 
@@ -69,6 +73,7 @@ impl RawRequestSink {
         Self {
             sink: Box::pin(sink),
             cancel,
+            queued_done: false,
             done: false,
         }
     }
@@ -83,18 +88,30 @@ impl Sink<RawRequestFrame> for RawRequestSink {
 
     fn start_send(self: Pin<&mut Self>, frame: RawRequestFrame) -> Result<(), SendError> {
         let this = self.get_mut();
-        if matches!(frame, RawRequestFrame::Done) {
-            this.done = true;
+        let is_done = matches!(frame, RawRequestFrame::Done);
+        this.sink.as_mut().start_send(frame)?;
+        if is_done {
+            this.queued_done = true;
         }
-        this.sink.as_mut().start_send(frame)
+        Ok(())
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), SendError>> {
-        self.get_mut().sink.as_mut().poll_flush(cx)
+        let this = self.get_mut();
+        ready!(this.sink.as_mut().poll_flush(cx))?;
+        if this.queued_done {
+            this.done = true;
+        }
+        Poll::Ready(Ok(()))
     }
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), SendError>> {
-        self.get_mut().sink.as_mut().poll_close(cx)
+        let this = self.get_mut();
+        ready!(this.sink.as_mut().poll_close(cx))?;
+        if this.queued_done {
+            this.done = true;
+        }
+        Poll::Ready(Ok(()))
     }
 }
 

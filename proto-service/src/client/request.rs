@@ -7,7 +7,7 @@ use futures_sink::Sink;
 use futures_util::SinkExt;
 
 use crate::client::{CallEndFut, RawRequestFrame, RawRequestSink};
-use crate::{Code, Response, SendError, Status};
+use crate::{Response, SendError, Status};
 
 /// The send half of a streaming-request call, as generated code hands it to callers.
 ///
@@ -98,21 +98,10 @@ impl<T: 'static, U: 'static> ClientStream<T, U> {
         let Self {
             sink,
             response,
-            mut decode,
+            decode,
         } = self;
         let _ = sink.done().await;
-        let end = response.await;
-        if end.status.code() != Code::Ok {
-            return Err(end.status);
-        }
-        let bytes = end
-            .single_response
-            .ok_or_else(|| Status::internal("unable to decode response message"))?;
-        Ok(Response {
-            headers: end.single_headers.unwrap_or_default(),
-            message: decode(bytes)?,
-            trailers: end.trailers,
-        })
+        response.await.into_response(decode)
     }
 }
 
