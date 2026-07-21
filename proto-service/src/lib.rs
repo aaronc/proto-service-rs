@@ -5,20 +5,18 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
+mod call;
+pub mod client;
 mod extensions;
 mod metadata;
-mod request;
 mod response;
-mod router;
-mod service;
+pub mod server;
 mod status;
 
+pub use call::*;
 pub use extensions::*;
 pub use metadata::*;
-pub use request::*;
 pub use response::*;
-pub use router::*;
-pub use service::*;
 pub use status::*;
 
 // Re-exported so the channel types can be named/constructed, and their

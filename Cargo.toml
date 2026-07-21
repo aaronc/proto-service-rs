@@ -16,6 +16,7 @@ repository = "https://github.com/aaronc/proto-service-rs"
 [workspace.dependencies]
 proto-service = { path = "proto-service", default-features = false }
 proto-service-build = { path = "proto-service-build" }
+proto-service-pipe = { path = "proto-service-pipe" }
 
 futures-core = { version = "0.3", default-features = false, features = ["alloc"] }
 futures-sink = { version = "0.3", default-features = false, features = ["alloc"] }

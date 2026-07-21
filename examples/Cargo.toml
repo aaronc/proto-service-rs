@@ -8,6 +8,11 @@ publish = false
 proto-service.workspace = true
 prost.workspace = true
 
+[dev-dependencies]
+proto-service-pipe = { workspace = true, features = ["tokio"] }
+tokio = { workspace = true, features = ["rt", "macros"] }
+futures.workspace = true
+
 [build-dependencies]
 proto-service-build.workspace = true
 prost-build.workspace = true

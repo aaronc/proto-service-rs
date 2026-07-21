@@ -2,7 +2,7 @@ use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::sync::Arc;
 
-use crate::{DynService, Service};
+use crate::server::{DynService, Service};
 
 /// A dispatch table mapping fully-qualified service names to type-erased services.
 /// Transport-agnostic: build once, wrap in `Arc`, and share across any number of

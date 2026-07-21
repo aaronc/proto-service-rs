@@ -1,3 +1,4 @@
+mod client;
 mod doc;
 mod generator;
 mod server_impl;

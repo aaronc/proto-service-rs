@@ -1,5 +1,5 @@
 use crate::generator::CodeGenerator;
-use crate::util::rust_type;
+use crate::util::{rust_type, service_name};
 use proc_macro2::TokenStream as TokenStream2;
 use prost_build::{Method, Service};
 use quote::{format_ident, quote};
@@ -36,10 +36,10 @@ impl CodeGenerator {
             descriptors.push(describe_arm(method));
         }
         Ok(quote! {
-            impl<T: #trait_ident> proto_service::Service for #server_ident<T> {
+            impl<T: #trait_ident> proto_service::server::Service for #server_ident<T> {
                 const SERVICE_NAME: &'static str = #service_name;
 
-                async fn handle(&self, call: proto_service::Call) -> proto_service::CallEnd {
+                async fn handle(&self, call: proto_service::server::Call) -> proto_service::CallEnd {
                     match call.method_name.as_str() {
                         #(#arms)*
                         _ => proto_service::CallEnd::error(
@@ -51,7 +51,7 @@ impl CodeGenerator {
                 fn describe_method(
                     &self,
                     method_name: &str,
-                ) -> Option<proto_service::MethodDescriptor> {
+                ) -> Option<proto_service::server::MethodDescriptor> {
                     match method_name {
                         #(#descriptors)*
                         _ => None,
@@ -127,7 +127,7 @@ fn decode_one_request(method: &Method) -> manyhow::Result<TokenStream2> {
                 );
             }
         };
-        let request = proto_service::Request {
+        let request = proto_service::server::Request {
             headers: call.headers,
             extensions: call.extensions,
             message,
@@ -142,7 +142,7 @@ fn decode_stream_request(method: &Method) -> manyhow::Result<TokenStream2> {
             Ok(stream) => stream,
             Err(end) => return end,
         };
-        let request = proto_service::StreamingRequest::new(
+        let request = proto_service::server::StreamingRequest::new(
             call.headers,
             call.extensions,
             stream,
@@ -180,7 +180,7 @@ fn stream_response(method: &Method) -> manyhow::Result<TokenStream2> {
                 );
             }
         };
-        let response = proto_service::StreamingResponse::new(sink, |message: #res| {
+        let response = proto_service::server::StreamingResponse::new(sink, |message: #res| {
             proto_service::Bytes::from(prost::Message::encode_to_vec(&message))
         });
         match self.inner.#method_ident(request, response).await {
@@ -195,18 +195,10 @@ fn describe_arm(method: &Method) -> TokenStream2 {
     let client_streaming = method.client_streaming;
     let server_streaming = method.server_streaming;
     quote! {
-        #key => Some(proto_service::MethodDescriptor {
+        #key => Some(proto_service::server::MethodDescriptor {
             client_streaming: #client_streaming,
             server_streaming: #server_streaming,
         }),
-    }
-}
-
-fn service_name(service: &Service) -> String {
-    if service.package.is_empty() {
-        service.proto_name.clone()
-    } else {
-        format!("{}.{}", service.package, service.proto_name)
     }
 }
 
@@ -240,9 +232,9 @@ mod tests {
     fn gen_service_impl_matches_expected() {
         let generated = CodeGenerator.gen_service_impl(&example_service()).unwrap();
         let expected = quote! {
-            impl<T: Greeter> proto_service::Service for GreeterServer<T> {
+            impl<T: Greeter> proto_service::server::Service for GreeterServer<T> {
                 const SERVICE_NAME: &'static str = "example.v1.Greeter";
-                async fn handle(&self, call: proto_service::Call) -> proto_service::CallEnd {
+                async fn handle(&self, call: proto_service::server::Call) -> proto_service::CallEnd {
                     match call.method_name.as_str() {
                         "Unary" => {
                             let bytes = match call.req_payload.into_single() {
@@ -257,7 +249,7 @@ mod tests {
                                     );
                                 }
                             };
-                            let request = proto_service::Request {
+                            let request = proto_service::server::Request {
                                 headers: call.headers,
                                 extensions: call.extensions,
                                 message,
@@ -284,7 +276,7 @@ mod tests {
                                     );
                                 }
                             };
-                            let request = proto_service::Request {
+                            let request = proto_service::server::Request {
                                 headers: call.headers,
                                 extensions: call.extensions,
                                 message,
@@ -297,7 +289,7 @@ mod tests {
                                     );
                                 }
                             };
-                            let response = proto_service::StreamingResponse::new(sink, |message: Pong| {
+                            let response = proto_service::server::StreamingResponse::new(sink, |message: Pong| {
                                 proto_service::Bytes::from(prost::Message::encode_to_vec(&message))
                             });
                             match self.inner.server_stream(request, response).await {
@@ -310,7 +302,7 @@ mod tests {
                                 Ok(stream) => stream,
                                 Err(end) => return end,
                             };
-                            let request = proto_service::StreamingRequest::new(
+                            let request = proto_service::server::StreamingRequest::new(
                                 call.headers,
                                 call.extensions,
                                 stream,
@@ -333,7 +325,7 @@ mod tests {
                                 Ok(stream) => stream,
                                 Err(end) => return end,
                             };
-                            let request = proto_service::StreamingRequest::new(
+                            let request = proto_service::server::StreamingRequest::new(
                                 call.headers,
                                 call.extensions,
                                 stream,
@@ -350,7 +342,7 @@ mod tests {
                                     );
                                 }
                             };
-                            let response = proto_service::StreamingResponse::new(sink, |message: Pong| {
+                            let response = proto_service::server::StreamingResponse::new(sink, |message: Pong| {
                                 proto_service::Bytes::from(prost::Message::encode_to_vec(&message))
                             });
                             match self.inner.bidi(request, response).await {
@@ -366,21 +358,21 @@ mod tests {
                 fn describe_method(
                     &self,
                     method_name: &str,
-                ) -> Option<proto_service::MethodDescriptor> {
+                ) -> Option<proto_service::server::MethodDescriptor> {
                     match method_name {
-                        "Unary" => Some(proto_service::MethodDescriptor {
+                        "Unary" => Some(proto_service::server::MethodDescriptor {
                             client_streaming: false,
                             server_streaming: false,
                         }),
-                        "ServerStream" => Some(proto_service::MethodDescriptor {
+                        "ServerStream" => Some(proto_service::server::MethodDescriptor {
                             client_streaming: false,
                             server_streaming: true,
                         }),
-                        "ClientStream" => Some(proto_service::MethodDescriptor {
+                        "ClientStream" => Some(proto_service::server::MethodDescriptor {
                             client_streaming: true,
                             server_streaming: false,
                         }),
-                        "Bidi" => Some(proto_service::MethodDescriptor {
+                        "Bidi" => Some(proto_service::server::MethodDescriptor {
                             client_streaming: true,
                             server_streaming: true,
                         }),

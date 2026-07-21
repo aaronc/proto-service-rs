@@ -37,7 +37,7 @@ impl CodeGenerator {
         let res = rust_type(&method.output_type)?;
         Ok(quote! {
             #doc
-            fn #name(&self, request: proto_service::Request<#req>)
+            fn #name(&self, request: proto_service::server::Request<#req>)
                 -> impl core::future::Future<
                     Output = proto_service::Result<proto_service::Response<#res>>,
                 > + Send;
@@ -56,8 +56,8 @@ impl CodeGenerator {
             #doc
             fn #name(
                 &self,
-                request: proto_service::Request<#req>,
-                response: proto_service::StreamingResponse<#res>,
+                request: proto_service::server::Request<#req>,
+                response: proto_service::server::StreamingResponse<#res>,
             ) -> impl core::future::Future<
                 Output = proto_service::Result<proto_service::MetadataMap>,
             > + Send;
@@ -74,7 +74,7 @@ impl CodeGenerator {
         let res = rust_type(&method.output_type)?;
         Ok(quote! {
             #doc
-            fn #name(&self, request: proto_service::StreamingRequest<#req>)
+            fn #name(&self, request: proto_service::server::StreamingRequest<#req>)
                 -> impl core::future::Future<
                     Output = proto_service::Result<proto_service::Response<#res>>,
                 > + Send;
@@ -90,8 +90,8 @@ impl CodeGenerator {
             #doc
             fn #name(
                 &self,
-                request: proto_service::StreamingRequest<#req>,
-                response: proto_service::StreamingResponse<#res>,
+                request: proto_service::server::StreamingRequest<#req>,
+                response: proto_service::server::StreamingResponse<#res>,
             ) -> impl core::future::Future<
                 Output = proto_service::Result<proto_service::MetadataMap>,
             > + Send;
@@ -113,25 +113,25 @@ mod tests {
             #[doc = " Greeter service."]
             pub trait Greeter: core::marker::Send + core::marker::Sync + 'static {
                 #[doc = " Says hello."]
-                fn unary(&self, request: proto_service::Request<Ping>)
+                fn unary(&self, request: proto_service::server::Request<Ping>)
                     -> impl core::future::Future<
                         Output = proto_service::Result<proto_service::Response<Pong>>,
                     > + Send;
                 fn server_stream(
                     &self,
-                    request: proto_service::Request<Ping>,
-                    response: proto_service::StreamingResponse<Pong>,
+                    request: proto_service::server::Request<Ping>,
+                    response: proto_service::server::StreamingResponse<Pong>,
                 ) -> impl core::future::Future<
                     Output = proto_service::Result<proto_service::MetadataMap>,
                 > + Send;
-                fn client_stream(&self, request: proto_service::StreamingRequest<Ping>)
+                fn client_stream(&self, request: proto_service::server::StreamingRequest<Ping>)
                     -> impl core::future::Future<
                         Output = proto_service::Result<proto_service::Response<Pong>>,
                     > + Send;
                 fn bidi(
                     &self,
-                    request: proto_service::StreamingRequest<Ping>,
-                    response: proto_service::StreamingResponse<Pong>,
+                    request: proto_service::server::StreamingRequest<Ping>,
+                    response: proto_service::server::StreamingResponse<Pong>,
                 ) -> impl core::future::Future<
                     Output = proto_service::Result<proto_service::MetadataMap>,
                 > + Send;
